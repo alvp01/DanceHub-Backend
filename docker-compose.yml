@@ -8,12 +8,10 @@ services:
     environment:
       POSTGRES_USER: ${DB_USER}
       POSTGRES_PASSWORD: ${DB_PASSWORD}
-      # No definimos POSTGRES_DB aquí a propósito:
-      # la app se encarga de crearla
     volumes:
       - postgres_data:/var/lib/postgresql/data
     ports:
-      - "5432:5432" # expuesto solo para desarrollo local
+      - "5433:5432"
     healthcheck:
       test: [ "CMD-SHELL", "pg_isready -U ${DB_USER}" ]
       interval: 5s
@@ -32,9 +30,7 @@ services:
       - "${SERVER_PORT:-8080}:8080"
     depends_on:
       postgres:
-        condition: service_healthy # espera al healthcheck
-    # La app también tiene su propio retry interno (waitForPostgres)
-    # Dos capas de protección ante race conditions
+        condition: service_healthy
 
 volumes:
   postgres_data:
