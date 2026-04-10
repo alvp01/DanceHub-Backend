@@ -12,15 +12,21 @@ import (
 	"github.com/lib/pq"
 )
 
-var (
-	ErrEmailAlreadyExists   = errors.New("el email ya está registrado")
-	ErrNameAlreadyExists    = errors.New("el nombre ya está registrado")
-	ErrPhoneAlreadyExists   = errors.New("el teléfono ya está registrado")
-	ErrAcademyNotFound      = errors.New("academia no encontrada")
-	ErrInvalidCredentials   = errors.New("credenciales inválidas")
-	ErrRefreshTokenNotFound = errors.New("refresh token no encontrado")
-	ErrRefreshTokenRevoked  = errors.New("refresh token revocado")
-	ErrRefreshTokenExpired  = errors.New("refresh token expirado")
+type AcademyError string
+
+func (e AcademyError) Error() string {
+	return string(e)
+}
+
+const (
+	ErrEmailAlreadyExists   AcademyError = "el email ya está registrado"
+	ErrNameAlreadyExists    AcademyError = "el nombre ya está registrado"
+	ErrPhoneAlreadyExists   AcademyError = "el teléfono ya está registrado"
+	ErrAcademyNotFound      AcademyError = "academia no encontrada"
+	ErrInvalidCredentials   AcademyError = "credenciales inválidas"
+	ErrRefreshTokenNotFound AcademyError = "refresh token no encontrado"
+	ErrRefreshTokenRevoked  AcademyError = "refresh token revocado"
+	ErrRefreshTokenExpired  AcademyError = "refresh token expirado"
 )
 
 func hashToken(token string) string {

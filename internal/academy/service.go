@@ -64,7 +64,6 @@ func (s *Service) Register(ctx context.Context, req RegisterRequest) (*RegisterR
 		Email:          academy.Email,
 		PrimaryPhone:   academy.PrimaryPhone,
 		SecondaryPhone: academy.SecondaryPhone,
-		CreatedAt:      academy.CreatedAt,
 	}, nil
 }
 

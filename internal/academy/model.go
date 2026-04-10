@@ -10,8 +10,8 @@ type Academy struct {
 	PrimaryPhone   string    `json:"primary_phone"`
 	SecondaryPhone *string   `json:"secondary_phone,omitempty"` // puntero = nullable
 	PasswordHash   string    `json:"-"`                         // nunca se serializa
-	CreatedAt      time.Time `json:"created_at"`
-	UpdatedAt      time.Time `json:"updated_at"`
+	CreatedAt      time.Time `json:"-"`
+	UpdatedAt      time.Time `json:"-"`
 }
 
 // RegisterRequest es lo que recibe el endpoint
@@ -30,7 +30,6 @@ type RegisterResponse struct {
 	Email          string    `json:"email"`
 	PrimaryPhone   string    `json:"primary_phone"`
 	SecondaryPhone *string   `json:"secondary_phone,omitempty"`
-	CreatedAt      time.Time `json:"created_at"`
 }
 
 // internal/academy/model.go (agregar al archivo existente)
@@ -56,6 +55,6 @@ type RefreshToken struct {
 	AcademyID string     `json:"academy_id"`
 	TokenHash string     `json:"-"`
 	ExpiresAt time.Time  `json:"expires_at"`
-	CreatedAt time.Time  `json:"created_at"`
+	CreatedAt time.Time  `json:"-"`
 	RevokedAt *time.Time `json:"revoked_at,omitempty"`
 }
