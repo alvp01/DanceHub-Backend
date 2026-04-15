@@ -22,17 +22,14 @@ func NewService(repo *Repository, jwtManager *jwtpkg.Manager) *Service {
 }
 
 func (s *Service) Register(ctx context.Context, req RegisterRequest) (*RegisterResponse, error) {
-	// 1. Validar password
 	if err := validator.ValidatePassword(req.Password); err != nil {
 		return nil, err
 	}
 
-	// 2. Validar campos requeridos básicos
 	if req.Name == "" || req.Email == "" || req.PrimaryPhone == "" {
 		return nil, fmt.Errorf("nombre, email y teléfono primario son obligatorios")
 	}
 
-	// 3. Hashear el password con bcrypt
 	cost, _ := strconv.Atoi(os.Getenv("BCRYPT_COST"))
 	if cost == 0 {
 		cost = bcrypt.DefaultCost
@@ -43,7 +40,6 @@ func (s *Service) Register(ctx context.Context, req RegisterRequest) (*RegisterR
 		return nil, fmt.Errorf("service.Register: error hasheando password: %w", err)
 	}
 
-	// 4. Construir entidad
 	academy := &Academy{
 		Name:           req.Name,
 		Email:          req.Email,
@@ -52,12 +48,10 @@ func (s *Service) Register(ctx context.Context, req RegisterRequest) (*RegisterR
 		PasswordHash:   string(hash),
 	}
 
-	// 5. Persistir
 	if err := s.repo.Create(ctx, academy); err != nil {
 		return nil, err
 	}
 
-	// 6. Responder sin datos sensibles
 	return &RegisterResponse{
 		ID:             academy.ID,
 		Name:           academy.Name,
@@ -72,13 +66,11 @@ func (s *Service) Login(ctx context.Context, req LoginRequest) (*LoginResponse, 
 		return nil, fmt.Errorf("email y password son requeridos")
 	}
 
-	// 1. Buscar academia por email
 	academy, err := s.repo.FindByEmail(ctx, req.Email)
 	if err != nil {
 		return nil, err
 	}
 
-	// 2. Verificar password contra el hash
 	if err := bcrypt.CompareHashAndPassword(
 		[]byte(academy.PasswordHash),
 		[]byte(req.Password),
@@ -86,19 +78,16 @@ func (s *Service) Login(ctx context.Context, req LoginRequest) (*LoginResponse, 
 		return nil, ErrInvalidCredentials
 	}
 
-	// 3. Generar access token
 	accessToken, err := s.jwtManager.GenerateAccessToken(academy.ID, academy.Name)
 	if err != nil {
 		return nil, fmt.Errorf("service.Login: error generando access token: %w", err)
 	}
 
-	// 4. Generar refresh token
 	rawRefreshToken, expiresAt, err := s.jwtManager.GenerateRefreshToken(academy.ID, academy.Name)
 	if err != nil {
 		return nil, fmt.Errorf("service.Login: error generando refresh token: %w", err)
 	}
 
-	// 5. Persistir el refresh token (hasheado)
 	if err := s.repo.SaveRefreshToken(ctx, academy.ID, rawRefreshToken, expiresAt); err != nil {
 		return nil, err
 	}
@@ -116,24 +105,20 @@ func (s *Service) RefreshTokens(ctx context.Context, req RefreshRequest) (*Login
 		return nil, fmt.Errorf("refresh_token es requerido")
 	}
 
-	// 1. Validar firma y expiración del JWT
 	claims, err := s.jwtManager.ValidateRefreshToken(req.RefreshToken)
 	if err != nil {
 		return nil, ErrInvalidCredentials
 	}
 
-	// 2. Verificar que existe en DB y no está revocado
 	_, err = s.repo.FindRefreshToken(ctx, req.RefreshToken)
 	if err != nil {
 		return nil, ErrInvalidCredentials
 	}
 
-	// 3. Rotación: revocar el token usado (refresh token rotation)
 	if err := s.repo.RevokeRefreshToken(ctx, req.RefreshToken); err != nil {
 		return nil, err
 	}
 
-	// 4. Generar nuevos tokens
 	newAccessToken, err := s.jwtManager.GenerateAccessToken(claims.AcademyID, claims.AcademyName)
 	if err != nil {
 		return nil, fmt.Errorf("service.RefreshTokens: %w", err)

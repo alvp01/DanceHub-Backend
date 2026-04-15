@@ -19,7 +19,6 @@ func main() {
 		log.Println("No .env file found, usando variables de entorno del sistema")
 	}
 
-	// DB: crear si no existe + migraciones automáticas
 	cfg := database.ConfigFromEnv()
 	db, err := database.Init(cfg, migrations.Files)
 	if err != nil {
@@ -27,19 +26,16 @@ func main() {
 	}
 	defer db.Close()
 
-	// JWT
 	jwtManager, err := jwtpkg.NewManager()
 	if err != nil {
 		log.Fatalf("❌ Error inicializando JWT: %v", err)
 	}
 
-	// Wiring
 	academyRepo := academy.NewRepository(db)
 	academyService := academy.NewService(academyRepo, jwtManager)
 	academyHandler := academy.NewHandler(academyService)
 	authMiddleware := middleware.Auth(jwtManager)
 
-	// Router
 	mux := http.NewServeMux()
 	academyHandler.RegisterRoutes(mux, authMiddleware)
 

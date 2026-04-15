@@ -18,7 +18,6 @@ const AcademyClaimsKey contextKey = "academy_claims"
 func Auth(jwtManager *jwtpkg.Manager) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// 1. Extraer el token del header Authorization
 			authHeader := r.Header.Get("Authorization")
 			if authHeader == "" {
 				writeError(w, http.StatusUnauthorized, "authorization header requerido")
@@ -33,7 +32,6 @@ func Auth(jwtManager *jwtpkg.Manager) func(http.Handler) http.Handler {
 
 			tokenStr := parts[1]
 
-			// 2. Validar el access token
 			claims, err := jwtManager.ValidateAccessToken(tokenStr)
 			if err != nil {
 				if errors.Is(err, jwtpkg.ErrExpiredToken) {
@@ -44,14 +42,12 @@ func Auth(jwtManager *jwtpkg.Manager) func(http.Handler) http.Handler {
 				return
 			}
 
-			// 3. Inyectar claims en el contexto
 			ctx := context.WithValue(r.Context(), AcademyClaimsKey, claims)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
 }
 
-// GetClaims extrae los claims del contexto de forma segura
 func GetClaims(r *http.Request) (*jwtpkg.Claims, bool) {
 	claims, ok := r.Context().Value(AcademyClaimsKey).(*jwtpkg.Claims)
 	return claims, ok

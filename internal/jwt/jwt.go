@@ -23,7 +23,6 @@ const (
 	RefreshToken TokenType = "refresh"
 )
 
-// Claims es el payload del JWT
 type Claims struct {
 	AcademyID   string    `json:"academy_id"`
 	AcademyName string    `json:"academy_name"`
@@ -67,12 +66,10 @@ func NewManager() (*Manager, error) {
 	}, nil
 }
 
-// GenerateAccessToken crea un access token firmado
 func (m *Manager) GenerateAccessToken(academyID, academyName string) (string, error) {
 	return m.generate(academyID, academyName, AccessToken, m.accessSecret, m.accessDuration)
 }
 
-// GenerateRefreshToken crea un refresh token firmado
 func (m *Manager) GenerateRefreshToken(academyID, academyName string) (string, time.Time, error) {
 	expiresAt := time.Now().Add(m.refreshDuration)
 	token, err := m.generate(academyID, academyName, RefreshToken, m.refreshSecret, m.refreshDuration)
@@ -107,19 +104,16 @@ func (m *Manager) generate(
 	return signed, nil
 }
 
-// ValidateAccessToken valida y retorna los claims de un access token
 func (m *Manager) ValidateAccessToken(tokenStr string) (*Claims, error) {
 	return m.validate(tokenStr, m.accessSecret, AccessToken)
 }
 
-// ValidateRefreshToken valida y retorna los claims de un refresh token
 func (m *Manager) ValidateRefreshToken(tokenStr string) (*Claims, error) {
 	return m.validate(tokenStr, m.refreshSecret, RefreshToken)
 }
 
 func (m *Manager) validate(tokenStr string, secret []byte, expectedType TokenType) (*Claims, error) {
 	token, err := jwt.ParseWithClaims(tokenStr, &Claims{}, func(t *jwt.Token) (any, error) {
-		// Verificar que el algoritmo sea el esperado
 		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, fmt.Errorf("algoritmo de firma inesperado: %v", t.Header["alg"])
 		}
@@ -138,7 +132,6 @@ func (m *Manager) validate(tokenStr string, secret []byte, expectedType TokenTyp
 		return nil, ErrInvalidToken
 	}
 
-	// Verificar que el tipo de token sea el correcto
 	if claims.TokenType != expectedType {
 		return nil, ErrInvalidToken
 	}
@@ -146,7 +139,6 @@ func (m *Manager) validate(tokenStr string, secret []byte, expectedType TokenTyp
 	return claims, nil
 }
 
-// AccessDuration expone la duración para usarla en respuestas
 func (m *Manager) AccessDuration() time.Duration {
 	return m.accessDuration
 }

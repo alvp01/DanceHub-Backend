@@ -150,7 +150,6 @@ func (r *Repository) FindRefreshToken(ctx context.Context, rawToken string) (*Re
 	return rt, nil
 }
 
-// RevokeRefreshToken invalida un token específico (logout)
 func (r *Repository) RevokeRefreshToken(ctx context.Context, rawToken string) error {
 	query := `
         UPDATE refresh_tokens
@@ -169,7 +168,6 @@ func (r *Repository) RevokeRefreshToken(ctx context.Context, rawToken string) er
 	return nil
 }
 
-// RevokeAllRefreshTokens invalida todos los tokens de una academia (logout de todos los dispositivos)
 func (r *Repository) RevokeAllRefreshTokens(ctx context.Context, academyID string) error {
 	query := `
         UPDATE refresh_tokens

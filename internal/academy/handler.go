@@ -18,21 +18,17 @@ func NewHandler(service *Service) *Handler {
 	return &Handler{service: service}
 }
 
-// RegisterRoutes registra las rutas del dominio academy
 func (h *Handler) RegisterRoutes(mux *http.ServeMux, authMiddleware func(http.Handler) http.Handler) {
-	// Rutas públicas
 	mux.HandleFunc("POST /api/v1/academies/register", h.Register)
 	mux.HandleFunc("POST /api/v1/academies/login", h.Login)
 	mux.HandleFunc("POST /api/v1/academies/refresh", h.Refresh)
 
-	// Rutas protegidas (con middleware)
 	mux.Handle("POST /api/v1/academies/logout",
 		authMiddleware(http.HandlerFunc(h.Logout)))
 
 	mux.Handle("POST /api/v1/academies/logout-all",
 		authMiddleware(http.HandlerFunc(h.LogoutAll)))
 
-	// Ejemplo de ruta protegida
 	mux.Handle("GET /api/v1/academies/me",
 		authMiddleware(http.HandlerFunc(h.Me)))
 }
@@ -142,7 +138,6 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 
 	resp, err := h.service.Register(r.Context(), req)
 	if err != nil {
-		// Errores de validación de password (con lista de errores)
 		var pwErr *validator.PasswordValidationError
 		if errors.As(err, &pwErr) {
 			writeJSON(w, http.StatusUnprocessableEntity, map[string]any{
@@ -152,7 +147,6 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// Errores de unicidad
 		switch {
 		case errors.Is(err, ErrEmailAlreadyExists),
 			errors.Is(err, ErrNameAlreadyExists),
@@ -167,8 +161,6 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusCreated, resp)
 }
-
-// --- helpers ---
 
 func writeJSON(w http.ResponseWriter, status int, data any) {
 	w.Header().Set("Content-Type", "application/json")

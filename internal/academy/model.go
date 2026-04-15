@@ -8,13 +8,11 @@ type Academy struct {
 	Name           string    `json:"name"`
 	Email          string    `json:"email"`
 	PrimaryPhone   string    `json:"primary_phone"`
-	SecondaryPhone *string   `json:"secondary_phone,omitempty"` // puntero = nullable
-	PasswordHash   string    `json:"-"`                         // nunca se serializa
+	SecondaryPhone *string   `json:"secondary_phone,omitempty"`
+	PasswordHash   string    `json:"-"`
 	CreatedAt      time.Time `json:"-"`
 	UpdatedAt      time.Time `json:"-"`
 }
-
-// RegisterRequest es lo que recibe el endpoint
 type RegisterRequest struct {
 	Name           string  `json:"name"`
 	Email          string  `json:"email"`
@@ -23,16 +21,13 @@ type RegisterRequest struct {
 	Password       string  `json:"password"`
 }
 
-// RegisterResponse es lo que devuelve el endpoint (sin hash)
 type RegisterResponse struct {
-	ID             string    `json:"id"`
-	Name           string    `json:"name"`
-	Email          string    `json:"email"`
-	PrimaryPhone   string    `json:"primary_phone"`
-	SecondaryPhone *string   `json:"secondary_phone,omitempty"`
+	ID             string  `json:"id"`
+	Name           string  `json:"name"`
+	Email          string  `json:"email"`
+	PrimaryPhone   string  `json:"primary_phone"`
+	SecondaryPhone *string `json:"secondary_phone,omitempty"`
 }
-
-// internal/academy/model.go (agregar al archivo existente)
 
 type LoginRequest struct {
 	Email    string `json:"email"`
@@ -42,8 +37,8 @@ type LoginRequest struct {
 type LoginResponse struct {
 	AccessToken  string `json:"access_token"`
 	RefreshToken string `json:"refresh_token"`
-	TokenType    string `json:"token_type"` // "Bearer"
-	ExpiresIn    int    `json:"expires_in"` // segundos
+	TokenType    string `json:"token_type"`
+	ExpiresIn    int    `json:"expires_in"`
 }
 
 type RefreshRequest struct {
