@@ -44,6 +44,22 @@ func (c Config) dsn(dbName string) string {
 
 // Init es el punto de entrada: garantiza que la DB y las tablas existen
 func Init(cfg Config, migrationFiles embed.FS) (*sql.DB, error) {
+	db, err := OpenDatabase(cfg)
+	if err != nil {
+		return nil, err
+	}
+
+	// 4. Ejecutar migraciones pendientes
+	if err := RunMigrations(db, migrationFiles); err != nil {
+		db.Close()
+		return nil, err
+	}
+
+	return db, nil
+}
+
+// OpenDatabase garantiza que la DB exista y retorna una conexión lista para usar.
+func OpenDatabase(cfg Config) (*sql.DB, error) {
 	// 1. Esperar a que Postgres esté listo (crítico en Docker)
 	if err := waitForPostgres(cfg); err != nil {
 		return nil, err
@@ -58,12 +74,6 @@ func Init(cfg Config, migrationFiles embed.FS) (*sql.DB, error) {
 	db, err := connect(cfg.dsn(cfg.Name))
 	if err != nil {
 		return nil, fmt.Errorf("error conectando a %s: %w", cfg.Name, err)
-	}
-
-	// 4. Ejecutar migraciones pendientes
-	if err := runMigrations(db, migrationFiles); err != nil {
-		db.Close()
-		return nil, err
 	}
 
 	return db, nil

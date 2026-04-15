@@ -11,15 +11,15 @@ import (
 	"strings"
 )
 
-// runMigrations ejecuta los archivos .sql que aún no han sido aplicados
-func runMigrations(db *sql.DB, migrationFiles embed.FS) error {
+// RunMigrations ejecuta los archivos .sql de la carpeta sql/ que aún no han sido aplicados.
+func RunMigrations(db *sql.DB, migrationFiles embed.FS) error {
 	// 1. Crear tabla de control de migraciones si no existe
 	if err := createMigrationsTable(db); err != nil {
 		return err
 	}
 
 	// 2. Leer archivos SQL embebidos
-	files, err := getSQLFiles(migrationFiles)
+	files, err := getSQLFiles(migrationFiles, "sql")
 	if err != nil {
 		return err
 	}
@@ -27,6 +27,10 @@ func runMigrations(db *sql.DB, migrationFiles embed.FS) error {
 	// 3. Aplicar las que faltan
 	applied := 0
 	for _, filename := range files {
+		if strings.HasSuffix(filename, ".down.sql") {
+			continue
+		}
+
 		ok, err := isMigrationApplied(db, filename)
 		if err != nil {
 			return err
@@ -51,6 +55,56 @@ func runMigrations(db *sql.DB, migrationFiles embed.FS) error {
 	return nil
 }
 
+// RollbackMigrations revierte las últimas N migraciones aplicadas.
+func RollbackMigrations(db *sql.DB, migrationFiles embed.FS, steps int) error {
+	if steps <= 0 {
+		return fmt.Errorf("steps debe ser mayor a 0")
+	}
+
+	if err := createMigrationsTable(db); err != nil {
+		return err
+	}
+
+	rows, err := db.Query(
+		`SELECT filename FROM schema_migrations ORDER BY filename DESC LIMIT $1`,
+		steps,
+	)
+	if err != nil {
+		return fmt.Errorf("error obteniendo migraciones aplicadas: %w", err)
+	}
+	defer rows.Close()
+
+	var applied []string
+	for rows.Next() {
+		var filename string
+		if err := rows.Scan(&filename); err != nil {
+			return fmt.Errorf("error leyendo migración aplicada: %w", err)
+		}
+		applied = append(applied, filename)
+	}
+
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("error iterando migraciones aplicadas: %w", err)
+	}
+
+	if len(applied) == 0 {
+		log.Println("✅ No hay migraciones para revertir")
+		return nil
+	}
+
+	rolledBack := 0
+	for _, filename := range applied {
+		downFilename := downMigrationFileFromUp(filename)
+		if err := rollbackMigration(db, migrationFiles, filename, downFilename); err != nil {
+			return fmt.Errorf("error revirtiendo migración '%s': %w", filename, err)
+		}
+		rolledBack++
+	}
+
+	log.Printf("✅ %d migración(es) revertida(s)", rolledBack)
+	return nil
+}
+
 func createMigrationsTable(db *sql.DB) error {
 	_, err := db.Exec(`
         CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -61,10 +115,10 @@ func createMigrationsTable(db *sql.DB) error {
 	return err
 }
 
-func getSQLFiles(migrationFiles embed.FS) ([]string, error) {
+func getSQLFiles(migrationFiles embed.FS, dir string) ([]string, error) {
 	var files []string
 
-	err := fs.WalkDir(migrationFiles, "sql", func(path string, d fs.DirEntry, err error) error {
+	err := fs.WalkDir(migrationFiles, dir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -119,4 +173,39 @@ func applyMigration(db *sql.DB, migrationFiles embed.FS, filename string) error 
 	}
 
 	return tx.Commit()
+}
+
+func rollbackMigration(db *sql.DB, migrationFiles embed.FS, upFilename, downFilename string) error {
+	content, err := migrationFiles.ReadFile(downFilename)
+	if err != nil {
+		return fmt.Errorf("no se encontró la migración de rollback '%s': %w", downFilename, err)
+	}
+
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.Exec(string(content)); err != nil {
+		return fmt.Errorf("error ejecutando SQL de rollback: %w", err)
+	}
+
+	if _, err := tx.Exec(`DELETE FROM schema_migrations WHERE filename = $1`, upFilename); err != nil {
+		return fmt.Errorf("error eliminando registro de migración aplicada: %w", err)
+	}
+
+	return tx.Commit()
+}
+
+func downMigrationFileFromUp(upFilename string) string {
+	if strings.HasSuffix(upFilename, ".down.sql") {
+		return upFilename
+	}
+
+	if strings.HasSuffix(upFilename, ".sql") {
+		return strings.TrimSuffix(upFilename, ".sql") + ".down.sql"
+	}
+
+	return upFilename + ".down.sql"
 }

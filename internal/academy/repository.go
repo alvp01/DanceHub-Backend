@@ -54,7 +54,7 @@ func (r *Repository) Create(ctx context.Context, a *Academy) error {
 		a.Name,
 		a.Email,
 		a.PrimaryPhone,
-		a.SecondaryPhone, // puede ser nil
+		a.SecondaryPhone,
 		a.PasswordHash,
 	).Scan(&a.ID, &a.CreatedAt, &a.UpdatedAt)
 
