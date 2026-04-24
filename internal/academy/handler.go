@@ -2,9 +2,9 @@
 package academy
 
 import (
-	"encoding/json"
 	"errors"
-	"net/http"
+
+	"github.com/gin-gonic/gin"
 
 	"github.com/alvp01/DanceHub-Backend/internal/middleware"
 	"github.com/alvp01/DanceHub-Backend/internal/validator"
@@ -18,129 +18,123 @@ func NewHandler(service *Service) *Handler {
 	return &Handler{service: service}
 }
 
-func (h *Handler) RegisterRoutes(mux *http.ServeMux, authMiddleware func(http.Handler) http.Handler) {
-	mux.HandleFunc("POST /api/v1/academies/register", h.Register)
-	mux.HandleFunc("POST /api/v1/academies/login", h.Login)
-	mux.HandleFunc("POST /api/v1/academies/refresh", h.Refresh)
+func (h *Handler) RegisterRoutes(router *gin.Engine, authMiddleware gin.HandlerFunc) {
+	academies := router.Group("/api/v1/academies")
+	academies.POST("/register", h.Register)
+	academies.POST("/login", h.Login)
+	academies.POST("/refresh", h.Refresh)
 
-	mux.Handle("POST /api/v1/academies/logout",
-		authMiddleware(http.HandlerFunc(h.Logout)))
-
-	mux.Handle("POST /api/v1/academies/logout-all",
-		authMiddleware(http.HandlerFunc(h.LogoutAll)))
-
-	mux.Handle("GET /api/v1/academies/me",
-		authMiddleware(http.HandlerFunc(h.Me)))
+	protected := academies.Group("")
+	protected.Use(authMiddleware)
+	protected.POST("/logout", h.Logout)
+	protected.POST("/logout-all", h.LogoutAll)
+	protected.GET("/me", h.Me)
 }
 
-func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) Login(c *gin.Context) {
 	var req LoginRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "cuerpo de la petición inválido")
+	if err := c.ShouldBindJSON(&req); err != nil {
+		writeError(c, 400, "cuerpo de la petición inválido")
 		return
 	}
-	defer r.Body.Close()
 
-	resp, err := h.service.Login(r.Context(), req)
+	resp, err := h.service.Login(c.Request.Context(), req)
 	if err != nil {
 		if errors.Is(err, ErrInvalidCredentials) {
-			writeError(w, http.StatusUnauthorized, err.Error())
+			writeError(c, 401, err.Error())
 			return
 		}
-		writeError(w, http.StatusInternalServerError, "error interno del servidor")
+		writeError(c, 500, "error interno del servidor")
 		return
 	}
 
-	writeJSON(w, http.StatusOK, resp)
+	writeJSON(c, 200, resp)
 }
 
-func (h *Handler) Refresh(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) Refresh(c *gin.Context) {
 	var req RefreshRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "cuerpo de la petición inválido")
+	if err := c.ShouldBindJSON(&req); err != nil {
+		writeError(c, 400, "cuerpo de la petición inválido")
 		return
 	}
-	defer r.Body.Close()
 
-	resp, err := h.service.RefreshTokens(r.Context(), req)
+	resp, err := h.service.RefreshTokens(c.Request.Context(), req)
 	if err != nil {
 		if errors.Is(err, ErrInvalidCredentials) {
-			writeError(w, http.StatusUnauthorized, "token inválido o expirado")
+			writeError(c, 401, "token inválido o expirado")
 			return
 		}
-		writeError(w, http.StatusInternalServerError, "error interno del servidor")
+		writeError(c, 500, "error interno del servidor")
 		return
 	}
 
-	writeJSON(w, http.StatusOK, resp)
+	writeJSON(c, 200, resp)
 }
 
-func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) Logout(c *gin.Context) {
 	var req RefreshRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "cuerpo de la petición inválido")
+	if err := c.ShouldBindJSON(&req); err != nil {
+		writeError(c, 400, "cuerpo de la petición inválido")
 		return
 	}
-	defer r.Body.Close()
 
-	if err := h.service.Logout(r.Context(), req.RefreshToken); err != nil {
+	if err := h.service.Logout(c.Request.Context(), req.RefreshToken); err != nil {
 		if errors.Is(err, ErrRefreshTokenNotFound) {
-			writeError(w, http.StatusNotFound, "token no encontrado")
+			writeError(c, 404, "token no encontrado")
 			return
 		}
-		writeError(w, http.StatusInternalServerError, "error interno del servidor")
+		writeError(c, 500, "error interno del servidor")
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]string{"message": "sesión cerrada correctamente"})
+	writeJSON(c, 200, map[string]string{"message": "sesión cerrada correctamente"})
 }
 
-func (h *Handler) LogoutAll(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) LogoutAll(c *gin.Context) {
 	// Obtener academy_id desde el JWT (ya validado por el middleware)
-	claims, ok := middleware.GetClaims(r)
+	claims, ok := middleware.GetClaims(c)
 	if !ok {
-		writeError(w, http.StatusUnauthorized, "no autorizado")
+		writeError(c, 401, "no autorizado")
 		return
 	}
 
-	if err := h.service.LogoutAll(r.Context(), claims.AcademyID); err != nil {
-		writeError(w, http.StatusInternalServerError, "error interno del servidor")
+	if err := h.service.LogoutAll(c.Request.Context(), claims.AcademyID); err != nil {
+		writeError(c, 500, "error interno del servidor")
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]string{
+	writeJSON(c, 200, map[string]string{
 		"message": "todas las sesiones cerradas correctamente",
 	})
 }
 
-func (h *Handler) Me(w http.ResponseWriter, r *http.Request) {
-	claims, ok := middleware.GetClaims(r)
+func (h *Handler) Me(c *gin.Context) {
+	claims, ok := middleware.GetClaims(c)
 	if !ok {
-		writeError(w, http.StatusUnauthorized, "no autorizado")
+		writeError(c, 401, "no autorizado")
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
+	writeJSON(c, 200, map[string]any{
 		"academy_id":   claims.AcademyID,
 		"academy_name": claims.AcademyName,
 		"token_type":   claims.TokenType,
 	})
 }
 
-func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) Register(c *gin.Context) {
 	var req RegisterRequest
 
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "cuerpo de la petición inválido")
+	if err := c.ShouldBindJSON(&req); err != nil {
+		writeError(c, 400, "cuerpo de la petición inválido")
 		return
 	}
-	defer r.Body.Close()
 
-	resp, err := h.service.Register(r.Context(), req)
+	resp, err := h.service.Register(c.Request.Context(), req)
 	if err != nil {
 		var pwErr *validator.PasswordValidationError
 		if errors.As(err, &pwErr) {
-			writeJSON(w, http.StatusUnprocessableEntity, map[string]any{
+			writeJSON(c, 422, map[string]any{
 				"error":  "password inválido",
 				"detail": pwErr.Errors,
 			})
@@ -151,23 +145,21 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 		case errors.Is(err, ErrEmailAlreadyExists),
 			errors.Is(err, ErrNameAlreadyExists),
 			errors.Is(err, ErrPhoneAlreadyExists):
-			writeError(w, http.StatusConflict, err.Error())
+			writeError(c, 409, err.Error())
 			return
 		}
 
-		writeError(w, http.StatusInternalServerError, "error interno del servidor")
+		writeError(c, 500, "error interno del servidor")
 		return
 	}
 
-	writeJSON(w, http.StatusCreated, resp)
+	writeJSON(c, 201, resp)
 }
 
-func writeJSON(w http.ResponseWriter, status int, data any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(data)
+func writeJSON(c *gin.Context, status int, data any) {
+	c.JSON(status, data)
 }
 
-func writeError(w http.ResponseWriter, status int, message string) {
-	writeJSON(w, status, map[string]string{"error": message})
+func writeError(c *gin.Context, status int, message string) {
+	writeJSON(c, status, map[string]string{"error": message})
 }

@@ -3,28 +3,38 @@ package main
 
 import (
 	"log"
-	"net/http"
 	"os"
 
 	"github.com/alvp01/DanceHub-Backend/internal/academy"
 	"github.com/alvp01/DanceHub-Backend/internal/database"
-	"github.com/alvp01/DanceHub-Backend/internal/database/migrations"
 	jwtpkg "github.com/alvp01/DanceHub-Backend/internal/jwt"
 	"github.com/alvp01/DanceHub-Backend/internal/middleware"
+	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
 )
 
 func main() {
-	if err := godotenv.Load(); err != nil {
+	envPaths := []string{".env", "../../.env"}
+	envLoaded := false
+	for _, path := range envPaths {
+		if err := godotenv.Load(path); err == nil {
+			envLoaded = true
+			break
+		}
+	}
+	if !envLoaded {
 		log.Println("No .env file found, usando variables de entorno del sistema")
 	}
 
 	cfg := database.ConfigFromEnv()
-	db, err := database.Init(cfg, migrations.Files)
+	db, err := database.Init(cfg)
 	if err != nil {
 		log.Fatalf("❌ Error inicializando base de datos: %v", err)
 	}
-	defer db.Close()
+	sqlDB, err := db.DB()
+	if err == nil {
+		defer sqlDB.Close()
+	}
 
 	jwtManager, err := jwtpkg.NewManager()
 	if err != nil {
@@ -36,8 +46,8 @@ func main() {
 	academyHandler := academy.NewHandler(academyService)
 	authMiddleware := middleware.Auth(jwtManager)
 
-	mux := http.NewServeMux()
-	academyHandler.RegisterRoutes(mux, authMiddleware)
+	router := gin.Default()
+	academyHandler.RegisterRoutes(router, authMiddleware)
 
 	port := os.Getenv("SERVER_PORT")
 	if port == "" {
@@ -45,7 +55,7 @@ func main() {
 	}
 
 	log.Printf("🚀 Servidor corriendo en :%s", port)
-	if err := http.ListenAndServe(":"+port, mux); err != nil {
+	if err := router.Run(":" + port); err != nil {
 		log.Fatalf("Error iniciando servidor: %v", err)
 	}
 }

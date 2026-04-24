@@ -4,12 +4,11 @@ package academy
 import (
 	"context"
 	"crypto/sha256"
-	"database/sql"
-	"errors"
 	"fmt"
+	"strings"
 	"time"
 
-	"github.com/lib/pq"
+	"gorm.io/gorm"
 )
 
 type AcademyError string
@@ -35,41 +34,23 @@ func hashToken(token string) string {
 }
 
 type Repository struct {
-	db *sql.DB
+	db *gorm.DB
 }
 
-func NewRepository(db *sql.DB) *Repository {
+func NewRepository(db *gorm.DB) *Repository {
 	return &Repository{db: db}
 }
 
 func (r *Repository) Create(ctx context.Context, a *Academy) error {
-	query := `
-        INSERT INTO academies (name, email, primary_phone, secondary_phone, password_hash)
-        VALUES ($1, $2, $3, $4, $5)
-        RETURNING id, created_at, updated_at
-    `
-
-	err := r.db.QueryRowContext(
-		ctx, query,
-		a.Name,
-		a.Email,
-		a.PrimaryPhone,
-		a.SecondaryPhone,
-		a.PasswordHash,
-	).Scan(&a.ID, &a.CreatedAt, &a.UpdatedAt)
-
+	err := r.db.WithContext(ctx).Create(a).Error
 	if err != nil {
-		// Detectar violaciones de unicidad de Postgres
-		var pqErr *pq.Error
-		if errors.As(err, &pqErr) && pqErr.Code == "23505" {
-			switch pqErr.Constraint {
-			case "academies_email_key":
-				return ErrEmailAlreadyExists
-			case "academies_name_key":
-				return ErrNameAlreadyExists
-			case "academies_primary_phone_key":
-				return ErrPhoneAlreadyExists
-			}
+		switch {
+		case strings.Contains(err.Error(), "academies_email_key"):
+			return ErrEmailAlreadyExists
+		case strings.Contains(err.Error(), "academies_name_key"):
+			return ErrNameAlreadyExists
+		case strings.Contains(err.Error(), "academies_primary_phone_key"):
+			return ErrPhoneAlreadyExists
 		}
 		return fmt.Errorf("repository.Create: %w", err)
 	}
@@ -78,21 +59,9 @@ func (r *Repository) Create(ctx context.Context, a *Academy) error {
 }
 
 func (r *Repository) FindByEmail(ctx context.Context, email string) (*Academy, error) {
-	query := `
-        SELECT id, name, email, primary_phone, secondary_phone,
-               password_hash, created_at, updated_at
-        FROM academies
-        WHERE email = $1
-    `
-
 	a := &Academy{}
-	err := r.db.QueryRowContext(ctx, query, email).Scan(
-		&a.ID, &a.Name, &a.Email,
-		&a.PrimaryPhone, &a.SecondaryPhone,
-		&a.PasswordHash, &a.CreatedAt, &a.UpdatedAt,
-	)
-
-	if errors.Is(err, sql.ErrNoRows) {
+	err := r.db.WithContext(ctx).Where("email = ?", email).First(a).Error
+	if err == gorm.ErrRecordNotFound {
 		return nil, ErrAcademyNotFound
 	}
 	if err != nil {
@@ -108,11 +77,11 @@ func (r *Repository) SaveRefreshToken(
 	rawToken string,
 	expiresAt time.Time,
 ) error {
-	query := `
-        INSERT INTO refresh_tokens (academy_id, token_hash, expires_at)
-        VALUES ($1, $2, $3)
-    `
-	_, err := r.db.ExecContext(ctx, query, academyID, hashToken(rawToken), expiresAt)
+	err := r.db.WithContext(ctx).Create(&RefreshToken{
+		AcademyID: academyID,
+		TokenHash: hashToken(rawToken),
+		ExpiresAt: expiresAt,
+	}).Error
 	if err != nil {
 		return fmt.Errorf("repository.SaveRefreshToken: %w", err)
 	}
@@ -120,19 +89,9 @@ func (r *Repository) SaveRefreshToken(
 }
 
 func (r *Repository) FindRefreshToken(ctx context.Context, rawToken string) (*RefreshToken, error) {
-	query := `
-        SELECT id, academy_id, token_hash, expires_at, created_at, revoked_at
-        FROM refresh_tokens
-        WHERE token_hash = $1
-    `
-
 	rt := &RefreshToken{}
-	err := r.db.QueryRowContext(ctx, query, hashToken(rawToken)).Scan(
-		&rt.ID, &rt.AcademyID, &rt.TokenHash,
-		&rt.ExpiresAt, &rt.CreatedAt, &rt.RevokedAt,
-	)
-
-	if errors.Is(err, sql.ErrNoRows) {
+	err := r.db.WithContext(ctx).Where("token_hash = ?", hashToken(rawToken)).First(rt).Error
+	if err == gorm.ErrRecordNotFound {
 		return nil, ErrRefreshTokenNotFound
 	}
 	if err != nil {
@@ -151,30 +110,28 @@ func (r *Repository) FindRefreshToken(ctx context.Context, rawToken string) (*Re
 }
 
 func (r *Repository) RevokeRefreshToken(ctx context.Context, rawToken string) error {
-	query := `
-        UPDATE refresh_tokens
-        SET revoked_at = NOW()
-        WHERE token_hash = $1 AND revoked_at IS NULL
-    `
-	result, err := r.db.ExecContext(ctx, query, hashToken(rawToken))
+	now := time.Now()
+	result := r.db.WithContext(ctx).
+		Model(&RefreshToken{}).
+		Where("token_hash = ? AND revoked_at IS NULL", hashToken(rawToken)).
+		Update("revoked_at", now)
+	err := result.Error
 	if err != nil {
 		return fmt.Errorf("repository.RevokeRefreshToken: %w", err)
 	}
 
-	rows, _ := result.RowsAffected()
-	if rows == 0 {
+	if result.RowsAffected == 0 {
 		return ErrRefreshTokenNotFound
 	}
 	return nil
 }
 
 func (r *Repository) RevokeAllRefreshTokens(ctx context.Context, academyID string) error {
-	query := `
-        UPDATE refresh_tokens
-        SET revoked_at = NOW()
-        WHERE academy_id = $1 AND revoked_at IS NULL
-    `
-	_, err := r.db.ExecContext(ctx, query, academyID)
+	now := time.Now()
+	err := r.db.WithContext(ctx).
+		Model(&RefreshToken{}).
+		Where("academy_id = ? AND revoked_at IS NULL", academyID).
+		Update("revoked_at", now).Error
 	if err != nil {
 		return fmt.Errorf("repository.RevokeAllRefreshTokens: %w", err)
 	}

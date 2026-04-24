@@ -1,15 +1,19 @@
-// internal/database/postgres.go
+// internal/database/db.go
 package database
 
 import (
 	"database/sql"
-	"embed"
 	"fmt"
 	"log"
+	"net"
+	"net/url"
 	"os"
 	"time"
 
 	_ "github.com/lib/pq"
+	"gorm.io/driver/postgres"
+	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
 )
 
 // Config agrupa toda la configuración de la DB
@@ -23,13 +27,38 @@ type Config struct {
 }
 
 func ConfigFromEnv() Config {
+	sslMode := os.Getenv("DB_SSLMODE")
+	if sslMode == "" {
+		sslMode = "disable"
+	}
+	host := os.Getenv("DB_HOST")
+	if host == "" {
+		host = "localhost"
+	}
+	port := os.Getenv("DB_PORT")
+	if port == "" {
+		port = "5433"
+	}
+	user := os.Getenv("DB_USER")
+	if user == "" {
+		user = "postgres"
+	}
+	password := os.Getenv("DB_PASSWORD")
+	if password == "" {
+		password = "secret"
+	}
+	name := os.Getenv("DB_NAME")
+	if name == "" {
+		name = "dancehub_db"
+	}
+
 	return Config{
-		Host:     os.Getenv("DB_HOST"),
-		Port:     os.Getenv("DB_PORT"),
-		User:     os.Getenv("DB_USER"),
-		Password: os.Getenv("DB_PASSWORD"),
-		Name:     os.Getenv("DB_NAME"),
-		SSLMode:  os.Getenv("DB_SSLMODE"),
+		Host:     host,
+		Port:     port,
+		User:     user,
+		Password: password,
+		Name:     name,
+		SSLMode:  sslMode,
 	}
 }
 
@@ -42,24 +71,39 @@ func (c Config) dsn(dbName string) string {
 	)
 }
 
-// Init es el punto de entrada: garantiza que la DB y las tablas existen
-func Init(cfg Config, migrationFiles embed.FS) (*sql.DB, error) {
-	db, err := OpenDatabase(cfg)
-	if err != nil {
-		return nil, err
-	}
-
-	// 4. Ejecutar migraciones pendientes
-	if err := RunMigrations(db, migrationFiles); err != nil {
-		db.Close()
-		return nil, err
-	}
-
-	return db, nil
+// URL construye el DSN de Postgres para herramientas externas como Atlas.
+func (c Config) URL() string {
+	return c.dsn(c.Name)
 }
 
-// OpenDatabase garantiza que la DB exista y retorna una conexión lista para usar.
-func OpenDatabase(cfg Config) (*sql.DB, error) {
+// AtlasURL construye una URL PostgreSQL compatible con Atlas CLI.
+func (c Config) AtlasURL() string {
+	sslMode := c.SSLMode
+	if sslMode == "" {
+		sslMode = "disable"
+	}
+
+	u := &url.URL{
+		Scheme: "postgres",
+		Host:   net.JoinHostPort(c.Host, c.Port),
+		Path:   c.Name,
+	}
+	u.User = url.UserPassword(c.User, c.Password)
+
+	q := u.Query()
+	q.Set("sslmode", sslMode)
+	u.RawQuery = q.Encode()
+
+	return u.String()
+}
+
+// Init garantiza que la DB exista y retorna una conexión GORM lista para usar.
+func Init(cfg Config) (*gorm.DB, error) {
+	return OpenDatabase(cfg)
+}
+
+// OpenDatabase garantiza que la DB exista y retorna una conexión GORM lista para usar.
+func OpenDatabase(cfg Config) (*gorm.DB, error) {
 	// 1. Esperar a que Postgres esté listo (crítico en Docker)
 	if err := waitForPostgres(cfg); err != nil {
 		return nil, err
@@ -117,7 +161,7 @@ func waitForPostgres(cfg Config) error {
 // ensureDatabaseExists crea la DB si no existe
 func ensureDatabaseExists(cfg Config) error {
 	// Conectar al servidor sin especificar la DB objetivo
-	db, err := connect(cfg.dsn("postgres"))
+	db, err := connectSQL(cfg.dsn("postgres"))
 	if err != nil {
 		return fmt.Errorf("error conectando al servidor postgres: %w", err)
 	}
@@ -146,8 +190,7 @@ func ensureDatabaseExists(cfg Config) error {
 	return nil
 }
 
-// connect abre y verifica una conexión con pool configurado
-func connect(dsn string) (*sql.DB, error) {
+func connectSQL(dsn string) (*sql.DB, error) {
 	db, err := sql.Open("postgres", dsn)
 	if err != nil {
 		return nil, err
@@ -158,9 +201,31 @@ func connect(dsn string) (*sql.DB, error) {
 		return nil, err
 	}
 
-	db.SetMaxOpenConns(25)
-	db.SetMaxIdleConns(10)
-	db.SetConnMaxLifetime(5 * time.Minute)
+	return db, nil
+}
+
+// connect abre y verifica una conexión GORM con pool configurado.
+func connect(dsn string) (*gorm.DB, error) {
+	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{
+		Logger: logger.Default.LogMode(logger.Silent),
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	sqlDB, err := db.DB()
+	if err != nil {
+		return nil, err
+	}
+
+	if err := sqlDB.Ping(); err != nil {
+		sqlDB.Close()
+		return nil, err
+	}
+
+	sqlDB.SetMaxOpenConns(25)
+	sqlDB.SetMaxIdleConns(10)
+	sqlDB.SetConnMaxLifetime(5 * time.Minute)
 
 	return db, nil
 }
