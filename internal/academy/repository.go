@@ -4,10 +4,11 @@ package academy
 import (
 	"context"
 	"crypto/sha256"
+	"errors"
 	"fmt"
-	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"gorm.io/gorm"
 )
 
@@ -44,18 +45,37 @@ func NewRepository(db *gorm.DB) *Repository {
 func (r *Repository) Create(ctx context.Context, a *Academy) error {
 	err := r.db.WithContext(ctx).Create(a).Error
 	if err != nil {
-		switch {
-		case strings.Contains(err.Error(), "academies_email_key"):
-			return ErrEmailAlreadyExists
-		case strings.Contains(err.Error(), "academies_name_key"):
-			return ErrNameAlreadyExists
-		case strings.Contains(err.Error(), "academies_primary_phone_key"):
-			return ErrPhoneAlreadyExists
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			switch pgErr.ConstraintName {
+			case "academies_email_key", "idx_academies_email":
+				return ErrEmailAlreadyExists
+			case "academies_name_key", "idx_academies_name":
+				return ErrNameAlreadyExists
+			case "academies_primary_phone_key", "idx_academies_primary_phone":
+				return ErrPhoneAlreadyExists
+			}
+		}
+		// Fallback: check error message for unique constraint on email
+		if errMsg := err.Error(); errMsg != "" {
+			if contains(errMsg, "UNIQUE constraint failed: academies.email") || contains(errMsg, "duplicate key value violates unique constraint 'academies_email_key'") || contains(errMsg, "duplicate key value violates unique constraint 'idx_academies_email'") {
+				return ErrEmailAlreadyExists
+			}
+			if contains(errMsg, "UNIQUE constraint failed: academies.name") || contains(errMsg, "duplicate key value violates unique constraint 'academies_name_key'") || contains(errMsg, "duplicate key value violates unique constraint 'idx_academies_name'") {
+				return ErrNameAlreadyExists
+			}
+			if contains(errMsg, "UNIQUE constraint failed: academies.primary_phone") || contains(errMsg, "duplicate key value violates unique constraint 'academies_primary_phone_key'") || contains(errMsg, "duplicate key value violates unique constraint 'idx_academies_primary_phone'") {
+				return ErrPhoneAlreadyExists
+			}
 		}
 		return fmt.Errorf("repository.Create: %w", err)
 	}
-
 	return nil
+}
+
+// contains is a helper for substring search (for error message fallback)
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || (len(substr) > 0 && (len(s) > len(substr) && (s[0:len(substr)] == substr || contains(s[1:], substr)))))
 }
 
 func (r *Repository) FindByEmail(ctx context.Context, email string) (*Academy, error) {
