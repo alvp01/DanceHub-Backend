@@ -141,7 +141,20 @@ func (s *Service) RefreshTokens(ctx context.Context, req RefreshRequest) (*Login
 	}, nil
 }
 
-func (s *Service) Logout(ctx context.Context, rawRefreshToken string) error {
+func (s *Service) Logout(ctx context.Context, academyID, rawRefreshToken string) error {
+	if rawRefreshToken == "" {
+		return ErrInvalidCredentials
+	}
+
+	claims, err := s.jwtManager.ValidateRefreshToken(rawRefreshToken)
+	if err != nil {
+		return ErrInvalidCredentials
+	}
+
+	if claims.AcademyID != academyID {
+		return ErrInvalidCredentials
+	}
+
 	return s.repo.RevokeRefreshToken(ctx, rawRefreshToken)
 }
 

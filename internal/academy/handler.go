@@ -72,13 +72,23 @@ func (h *Handler) Refresh(c *gin.Context) {
 }
 
 func (h *Handler) Logout(c *gin.Context) {
+	claims, ok := middleware.GetClaims(c)
+	if !ok {
+		writeError(c, 401, "no autorizado")
+		return
+	}
+
 	var req RefreshRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		writeError(c, 400, "cuerpo de la petición inválido")
 		return
 	}
 
-	if err := h.service.Logout(c.Request.Context(), req.RefreshToken); err != nil {
+	if err := h.service.Logout(c.Request.Context(), claims.AcademyID, req.RefreshToken); err != nil {
+		if errors.Is(err, ErrInvalidCredentials) {
+			writeError(c, 401, "token inválido o no autorizado")
+			return
+		}
 		if errors.Is(err, ErrRefreshTokenNotFound) {
 			writeError(c, 404, "token no encontrado")
 			return

@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"testing"
-	"time"
 
 	"github.com/alvp01/DanceHub-Backend/internal/validator"
 )
@@ -142,10 +141,6 @@ func TestServiceRegisterValidationAndLoginFlow(t *testing.T) {
 		t.Fatalf("expected login tokens, got %+v", loginResp)
 	}
 
-	// JWT claims currently include second-level timestamps, so issuing two refresh
-	// tokens within the same second can produce identical token hashes.
-	time.Sleep(time.Second)
-
 	refreshResp, err := service.RefreshTokens(ctx, RefreshRequest{RefreshToken: loginResp.RefreshToken})
 	if err != nil {
 		t.Fatalf("refresh failed: %v", err)
@@ -165,7 +160,7 @@ func TestServiceLogoutRevokesRefreshToken(t *testing.T) {
 	_, service, _ := setupAcademyTestDeps(t)
 	ctx := context.Background()
 
-	_, err := service.Register(ctx, RegisterRequest{
+	registerResp, err := service.Register(ctx, RegisterRequest{
 		Name:         "Steps Academy",
 		Email:        "steps@example.com",
 		PrimaryPhone: "999333444",
@@ -180,12 +175,52 @@ func TestServiceLogoutRevokesRefreshToken(t *testing.T) {
 		t.Fatalf("login failed: %v", err)
 	}
 
-	if err := service.Logout(ctx, loginResp.RefreshToken); err != nil {
+	if err := service.Logout(ctx, registerResp.ID, loginResp.RefreshToken); err != nil {
 		t.Fatalf("logout failed: %v", err)
 	}
 
 	_, err = service.RefreshTokens(ctx, RefreshRequest{RefreshToken: loginResp.RefreshToken})
 	if err != ErrInvalidCredentials {
 		t.Fatalf("expected invalid credentials after logout, got %v", err)
+	}
+}
+
+func TestServiceLogout_RejectsAnotherAcademyToken(t *testing.T) {
+	_, service, _ := setupAcademyTestDeps(t)
+	ctx := context.Background()
+
+	first, err := service.Register(ctx, RegisterRequest{
+		Name:         "First Academy",
+		Email:        "first@example.com",
+		PrimaryPhone: "900000001",
+		Password:     "ABcdef123!^x",
+	})
+	if err != nil {
+		t.Fatalf("registering first academy: %v", err)
+	}
+
+	_, err = service.Register(ctx, RegisterRequest{
+		Name:         "Second Academy",
+		Email:        "second@example.com",
+		PrimaryPhone: "900000002",
+		Password:     "ABcdef123!^x",
+	})
+	if err != nil {
+		t.Fatalf("registering second academy: %v", err)
+	}
+
+	secondLogin, err := service.Login(ctx, LoginRequest{Email: "second@example.com", Password: "ABcdef123!^x"})
+	if err != nil {
+		t.Fatalf("logging second academy: %v", err)
+	}
+
+	err = service.Logout(ctx, first.ID, secondLogin.RefreshToken)
+	if err != ErrInvalidCredentials {
+		t.Fatalf("expected ErrInvalidCredentials when academy logs out another academy token, got %v", err)
+	}
+
+	// Token should still be valid for its owner after rejected logout attempt.
+	if _, err := service.RefreshTokens(ctx, RefreshRequest{RefreshToken: secondLogin.RefreshToken}); err != nil {
+		t.Fatalf("expected second academy token to remain valid, got %v", err)
 	}
 }

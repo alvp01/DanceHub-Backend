@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
 )
 
 var (
@@ -89,6 +90,8 @@ func (m *Manager) generate(
 		AcademyName: academyName,
 		TokenType:   tokenType,
 		RegisteredClaims: jwt.RegisteredClaims{
+			ID:        uuid.NewString(),
+			Subject:   academyID,
 			IssuedAt:  jwt.NewNumericDate(now),
 			ExpiresAt: jwt.NewNumericDate(now.Add(duration)),
 			Issuer:    "academias-api",
@@ -114,11 +117,8 @@ func (m *Manager) ValidateRefreshToken(tokenStr string) (*Claims, error) {
 
 func (m *Manager) validate(tokenStr string, secret []byte, expectedType TokenType) (*Claims, error) {
 	token, err := jwt.ParseWithClaims(tokenStr, &Claims{}, func(t *jwt.Token) (any, error) {
-		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
-			return nil, fmt.Errorf("algoritmo de firma inesperado: %v", t.Header["alg"])
-		}
 		return secret, nil
-	})
+	}, jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Alg()}), jwt.WithIssuer("academias-api"))
 
 	if err != nil {
 		if errors.Is(err, jwt.ErrTokenExpired) {
