@@ -9,6 +9,7 @@ import (
 	"github.com/alvp01/DanceHub-Backend/internal/database"
 	jwtpkg "github.com/alvp01/DanceHub-Backend/internal/jwt"
 	"github.com/alvp01/DanceHub-Backend/internal/middleware"
+	"github.com/alvp01/DanceHub-Backend/internal/student"
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
 )
@@ -44,10 +45,14 @@ func main() {
 	academyRepo := academy.NewRepository(db)
 	academyService := academy.NewService(academyRepo, jwtManager)
 	academyHandler := academy.NewHandler(academyService)
+	studentRepo := student.NewRepository(db)
+	studentService := student.NewService(studentRepo)
+	studentHandler := student.NewHandler(studentService)
 	authMiddleware := middleware.Auth(jwtManager)
 
 	router := gin.Default()
 	academyHandler.RegisterRoutes(router, authMiddleware)
+	studentHandler.RegisterRoutes(router, authMiddleware)
 
 	port := os.Getenv("SERVER_PORT")
 	if port == "" {
